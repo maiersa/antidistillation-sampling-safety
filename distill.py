@@ -391,4 +391,5 @@ def main(cfg: DictConfig):
     accelerator.end_training()
 
 if __name__ == "__main__":
+    print("Starting distillation process...")
     main()
