@@ -6,7 +6,19 @@ This repository implements the techniques described in the paper [Antidistillati
 
 1. Install uv: https://docs.astral.sh/uv/getting-started/installation/
 2. Run `uv sync` to install dependencies
-3. Install flash-attention: `uv add flash-attn --no-build-isolation`
+3. (Optional, GPU speedup) Install FlashAttention.
+
+  FlashAttention often needs a CUDA toolchain and an already-installed PyTorch.
+  A common cluster-friendly sequence is:
+
+  ```bash
+  # If your cluster uses modules, load CUDA first (example):
+  # module load cuda/12.1
+
+  uv sync
+  uv pip install torch
+  uv pip install flash-attn==2.7.3 --no-build-isolation
+  ```
 
 ## Quick Start
 
