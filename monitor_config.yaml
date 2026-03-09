@@ -1,0 +1,42 @@
+hydra:
+  run:
+    dir: ${exp_dir}/metadata/monitor/${run_name}
+  output_subdir: null
+  job:
+    chdir: false
+
+seed: 42
+
+exp_dir: ${oc.env:EXP_DIR, "debug"}
+metadata_dir: ${exp_dir}/metadata
+monitor_dir: ${exp_dir}/monitor
+monitor_registry: ${metadata_dir}/monitor_registry.jsonl
+run_name: monitor_${monitor.backend}_${monitor.model_slug}_${now:yyyy-MM-dd_HH-mm-ss}
+run_path: ${monitor_dir}/${run_name}
+
+input_trace_paths: []
+trace_columns:
+  - trace
+  - trace_af
+
+only_correct: true
+allow_prompt_scaffold: false
+save_prompt_text: true
+
+monitor:
+  backend: transformers
+  model_name: Qwen/Qwen2.5-7B-Instruct
+  model_slug: qwen2_5_7b_instruct
+  tokenizer_name: null
+  trust_remote_code: false
+  torch_dtype: bfloat16
+  attn_implementation: flash_attention_2
+  device_map: null
+  batch_size: 2
+  max_prompt_length: 8192
+  max_new_tokens: 384
+  do_sample: false
+  temperature: 0.0
+  top_p: null
+  repetition_penalty: 1.0
+  prompt_path: prompts/monitorability_2510_23966_prompt.txt
