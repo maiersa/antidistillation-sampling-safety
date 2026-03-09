@@ -128,6 +128,12 @@ The pipeline tests multiple defense configurations. Modify `grid.py` to change:
   - LoRA parameters
   - Optimizer settings
 
+- **monitor_config.yaml**: Controls CoT monitor scoring
+  - Judge backend and model settings
+  - Prompt asset path
+  - Input trace datasets and trace columns
+  - Output directories and monitor registry
+
 - **acc_config.yaml**: Accelerate settings for distributed training
 
 ### Key Scripts
@@ -136,4 +142,28 @@ The pipeline tests multiple defense configurations. Modify `grid.py` to change:
 - `save_grad.py` - Computes and caches gradients from the proxy student model
 - `gentraces.py` - Generates reasoning traces (used for holdout data, training data, and evaluation)
 - `distill.py` - Trains student models using the generated traces
+- `score_monitor.py` - Scores saved reasoning traces with a CoT monitor autorater
 - `utils.py` - Dataset loading and utility functions
+
+## Monitor Scoring
+
+The repository also includes an initial monitor-scoring entrypoint for measuring
+CoT legibility and coverage on saved traces.
+
+```bash
+source .venv/bin/activate
+uv run accelerate launch --config_file acc_config.yaml score_monitor.py \
+  exp_dir=./experiments/full_pipeline_run2 \
+  input_trace_paths='[./experiments/full_pipeline_run2/traces/holdout]' \
+  monitor.model_name=Qwen/Qwen2.5-7B-Instruct
+```
+
+Notes:
+
+- The default prompt asset in `prompts/monitorability_2510_23966_prompt.txt`
+  is intended to mirror the Appendix C prompt from arXiv:2510.23966.
+- The script renders the paper-style placeholders `{question}`, `{explanation}`,
+  and `{answer}` using the source problem, the selected trace text, and the
+  extracted final answer from that trace.
+- The first implementation supports a local `transformers` backend and leaves
+  explicit seams for future `vllm` and API-based judge backends.
