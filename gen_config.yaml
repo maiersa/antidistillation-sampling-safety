@@ -29,6 +29,7 @@ batch_size: 512  # Batch size
 max_length: 1024  # Maximum tokens for generation
 max_prompt_length: 512  # Maximum tokens for prompt
 tau: 0.0  # Temperature for sampling
+repetition_penalty: 1.0
 answer_force: true
 
 # Output

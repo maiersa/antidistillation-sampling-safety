@@ -39,7 +39,12 @@ seed=42                    # Random seed for reproducibility
 dataset=hendrycks_math     # Dataset to use (Hendrycks math problems)
 exp_dir="${EXP_DIR:-$(git log -1 --pretty=%s | awk '{print $1}')}"  # Experiment directory
 mkdir -p "${exp_dir}"
+log_dir="${LOG_DIR:-${exp_dir}/logs}"
+mkdir -p "${log_dir}"
+log_file="${LOG_FILE:-${log_dir}/pipeline_math_$(date +%Y%m%d_%H%M%S).log}"
+exec > >(tee -a "${log_file}") 2>&1
 echo -e "${YELLOW}Experiment directory: ${exp_dir}${RESET}"
+echo -e "${YELLOW}Log file: ${log_file}${RESET}"
 
 # Accelerate launch command with GPU configuration
 PY="time uv run accelerate launch --config_file acc_config.yaml"
