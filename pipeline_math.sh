@@ -63,6 +63,7 @@ declare -a taulamepss
 
 # Read hyperparameter combinations into array
 while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
     taulamepss+=("$line")
 done < params_temp.txt
 

@@ -23,4 +23,4 @@ random.seed(42)
 random.shuffle(lines)
 
 # print(''.join(lines[offset::len(hashmap)]))
-print(''.join(lines))
+sys.stdout.write(''.join(lines))
