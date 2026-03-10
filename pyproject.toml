@@ -12,6 +12,7 @@ dependencies = [
     "ipdb>=0.13.13",
     "jupyter>=1.1.1",
     "math-verify>=0.7.0",
+    "matplotlib>=3.10.8",
     "nvitop>=1.4.2",
     "peft>=0.15.0",
     "ripgrep>=14.1.0",

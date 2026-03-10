@@ -20,6 +20,8 @@ trace_columns:
   - trace_af
 
 only_correct: true
+max_examples_per_trace_column: null
+match_examples_across_traces: false
 allow_prompt_scaffold: false
 save_prompt_text: true
 

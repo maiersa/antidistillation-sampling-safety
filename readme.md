@@ -155,6 +155,8 @@ source .venv/bin/activate
 uv run accelerate launch --config_file acc_config.yaml score_monitor.py \
   exp_dir=./experiments/full_pipeline_run2 \
   input_trace_paths='[./experiments/full_pipeline_run2/traces/holdout]' \
+  max_examples_per_trace_column=128 \
+  match_examples_across_traces=true \
   monitor.model_name=Qwen/Qwen2.5-7B-Instruct
 ```
 
@@ -165,5 +167,10 @@ Notes:
 - The script renders the paper-style placeholders `{question}`, `{explanation}`,
   and `{answer}` using the source problem, the selected trace text, and the
   extracted final answer from that trace.
+- `max_examples_per_trace_column` can be used to cap the number of scored rows
+  per source trace dataset and per target column after correctness filtering.
+- `match_examples_across_traces=true` restricts scoring to shared `source_row_index`
+  values within the same split and trace column, which is useful when comparing
+  monitorability across multiple ADS conditions on the same dataset split.
 - The first implementation supports a local `transformers` backend and leaves
   explicit seams for future `vllm` and API-based judge backends.

@@ -146,16 +146,21 @@ def parse_monitor_response(raw_response: str) -> dict[str, Any]:
 
 
 def build_monitor_prompt(template: str, example: dict[str, Any]) -> str:
-    return template.format(
-        question=example["problem"],
-        explanation=example["monitor_target_text"],
-        answer=example.get("trace_final_answer", ""),
-        problem=example["problem"],
-        ground_truth_solution=example.get("solution", ""),
-        trace_text=example["monitor_target_text"],
-        trace_column=example["monitor_target_column"],
-        trace_final_answer=example.get("trace_final_answer", ""),
-    )
+    replacements = {
+        "{question}": str(example["problem"]),
+        "{explanation}": str(example["monitor_target_text"]),
+        "{answer}": str(example.get("trace_final_answer", "")),
+        "{problem}": str(example["problem"]),
+        "{ground_truth_solution}": str(example.get("solution", "")),
+        "{trace_text}": str(example["monitor_target_text"]),
+        "{trace_column}": str(example["monitor_target_column"]),
+        "{trace_final_answer}": str(example.get("trace_final_answer", "")),
+    }
+
+    rendered = template
+    for placeholder, value in replacements.items():
+        rendered = rendered.replace(placeholder, value)
+    return rendered
 
 
 def load_trace_metadata(trace_path: str) -> dict[str, Any]:
@@ -169,7 +174,39 @@ def add_constant_column(dataset: datasets.Dataset, name: str, value: Any) -> dat
     return dataset.add_column(name, [value] * len(dataset))
 
 
-def explode_trace_columns(trace_dataset: datasets.Dataset, trace_path: str, trace_columns: list[str], only_correct: bool) -> list[datasets.Dataset]:
+def filter_by_allowed_row_indices(dataset: datasets.Dataset, allowed_row_indices: set[int]) -> datasets.Dataset:
+    if not allowed_row_indices:
+        return dataset.select([])
+    return dataset.filter(
+        lambda example: int(example["source_row_index"]) in allowed_row_indices,
+        desc="Matching shared source rows",
+    )
+
+
+def cap_examples(dataset: datasets.Dataset, max_examples: int | None, seed: int, trace_name: str, trace_column: str) -> datasets.Dataset:
+    if max_examples is None or len(dataset) <= max_examples:
+        return dataset
+
+    shuffled = dataset.shuffle(seed=seed)
+    capped = shuffled.select(range(max_examples))
+    log.info(
+        "Capped %s:%s from %d rows to %d rows for monitor scoring",
+        trace_name,
+        trace_column,
+        len(dataset),
+        len(capped),
+    )
+    return capped
+
+
+def explode_trace_columns(
+    trace_dataset: datasets.Dataset,
+    trace_path: str,
+    trace_columns: list[str],
+    only_correct: bool,
+    max_examples_per_trace_column: int | None,
+    seed: int,
+) -> list[datasets.Dataset]:
     metadata = load_trace_metadata(trace_path)
     trace_name = metadata.get("trace_name", Path(trace_path).name)
     exploded = []
@@ -192,6 +229,8 @@ def explode_trace_columns(trace_dataset: datasets.Dataset, trace_path: str, trac
         if only_correct and correct_column in view.column_names:
             view = view.filter(lambda example: bool(example[correct_column]), desc=f"Filtering correct rows for {trace_name}:{trace_column}")
 
+        view = cap_examples(view, max_examples_per_trace_column, seed, trace_name, trace_column)
+
         if len(view) == 0:
             continue
 
@@ -206,6 +245,59 @@ def explode_trace_columns(trace_dataset: datasets.Dataset, trace_path: str, trac
     return exploded
 
 
+def align_examples_across_traces(
+    exploded_datasets: list[datasets.Dataset],
+    max_examples_per_trace_column: int | None,
+    seed: int,
+) -> list[datasets.Dataset]:
+    grouped: dict[tuple[str, str], list[int]] = {}
+    aligned: list[datasets.Dataset] = []
+
+    for idx, dataset in enumerate(exploded_datasets):
+        if len(dataset) == 0:
+            continue
+        split_name = str(dataset[0]["source_data_split"])
+        trace_column = str(dataset[0]["monitor_target_column"])
+        grouped.setdefault((split_name, trace_column), []).append(idx)
+
+    for (split_name, trace_column), dataset_indices in grouped.items():
+        shared_row_indices = None
+        for dataset_idx in dataset_indices:
+            row_indices = set(int(value) for value in exploded_datasets[dataset_idx]["source_row_index"])
+            shared_row_indices = row_indices if shared_row_indices is None else shared_row_indices & row_indices
+
+        shared_row_indices = shared_row_indices or set()
+        if not shared_row_indices:
+            log.warning(
+                "No shared rows found for split=%s trace_column=%s while aligning examples across traces",
+                split_name,
+                trace_column,
+            )
+            for dataset_idx in dataset_indices:
+                aligned.append(exploded_datasets[dataset_idx].select([]))
+            continue
+
+        shared_row_indices = sorted(shared_row_indices)
+        if max_examples_per_trace_column is not None and len(shared_row_indices) > max_examples_per_trace_column:
+            rng = random.Random(seed)
+            shared_row_indices = sorted(rng.sample(shared_row_indices, max_examples_per_trace_column))
+
+        allowed = set(shared_row_indices)
+        for dataset_idx in dataset_indices:
+            dataset = filter_by_allowed_row_indices(exploded_datasets[dataset_idx], allowed)
+            trace_name = dataset[0]["source_trace_name"] if len(dataset) else exploded_datasets[dataset_idx][0]["source_trace_name"]
+            log.info(
+                "Aligned %s:%s on split=%s to %d shared rows",
+                trace_name,
+                trace_column,
+                split_name,
+                len(dataset),
+            )
+            aligned.append(dataset)
+
+    return aligned
+
+
 class JudgeBackend:
     def generate(self, prompts: list[str]) -> list[str]:
         raise NotImplementedError
@@ -218,6 +310,7 @@ class TransformersJudgeBackend(JudgeBackend):
             cfg.monitor.tokenizer_name or cfg.monitor.model_name,
             trust_remote_code=cfg.monitor.trust_remote_code,
         )
+        self.tokenizer.padding_side = "left"
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -254,16 +347,22 @@ class TransformersJudgeBackend(JudgeBackend):
         tokenized = {key: value.to(self._input_device()) for key, value in tokenized.items()}
         prompt_lengths = tokenized["attention_mask"].sum(dim=1).tolist()
 
+        generation_kwargs = {
+            "max_new_tokens": self.cfg.monitor.max_new_tokens,
+            "do_sample": self.cfg.monitor.do_sample,
+            "repetition_penalty": self.cfg.monitor.repetition_penalty,
+            "pad_token_id": self.tokenizer.eos_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+        }
+        if self.cfg.monitor.do_sample:
+            generation_kwargs["temperature"] = self.cfg.monitor.temperature
+            if self.cfg.monitor.top_p is not None:
+                generation_kwargs["top_p"] = self.cfg.monitor.top_p
+
         with torch.inference_mode():
             outputs = self.model.generate(
                 **tokenized,
-                max_new_tokens=self.cfg.monitor.max_new_tokens,
-                do_sample=self.cfg.monitor.do_sample,
-                temperature=None if self.cfg.monitor.temperature == 0 else self.cfg.monitor.temperature,
-                top_p=self.cfg.monitor.top_p,
-                repetition_penalty=self.cfg.monitor.repetition_penalty,
-                pad_token_id=self.tokenizer.eos_token_id,
-                eos_token_id=self.tokenizer.eos_token_id,
+                **generation_kwargs,
             )
 
         decoded = []
@@ -351,7 +450,23 @@ def main(cfg: DictConfig) -> None:
         exploded_datasets = []
         for trace_path in cfg.input_trace_paths:
             trace_dataset = datasets.load_from_disk(trace_path)
-            exploded_datasets.extend(explode_trace_columns(trace_dataset, trace_path, list(cfg.trace_columns), cfg.only_correct))
+            exploded_datasets.extend(
+                explode_trace_columns(
+                    trace_dataset,
+                    trace_path,
+                    list(cfg.trace_columns),
+                    cfg.only_correct,
+                    cfg.max_examples_per_trace_column,
+                    cfg.seed,
+                )
+            )
+
+        if cfg.match_examples_across_traces:
+            exploded_datasets = align_examples_across_traces(
+                exploded_datasets,
+                cfg.max_examples_per_trace_column,
+                cfg.seed,
+            )
 
         if not exploded_datasets:
             raise ValueError("No rows matched the requested trace_columns and correctness filter")

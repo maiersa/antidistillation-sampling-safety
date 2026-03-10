@@ -16,6 +16,8 @@ INPUT_TRACE_PATHS="${INPUT_TRACE_PATHS:-[\"$EXP_DIR/traces/holdout\"]}"
 INPUT_TRACE_PATHS_LIST="${INPUT_TRACE_PATHS_LIST:-}"
 TRACE_COLUMNS="${TRACE_COLUMNS:-[trace,trace_af]}"
 ONLY_CORRECT="${ONLY_CORRECT:-true}"
+MAX_EXAMPLES_PER_TRACE_COLUMN="${MAX_EXAMPLES_PER_TRACE_COLUMN:-null}"
+MATCH_EXAMPLES_ACROSS_TRACES="${MATCH_EXAMPLES_ACROSS_TRACES:-false}"
 
 MONITOR_BACKEND="${MONITOR_BACKEND:-transformers}"
 MONITOR_MODEL_NAME="${MONITOR_MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct}"
@@ -61,6 +63,8 @@ echo "[monitor] exp_dir=$EXP_DIR"
 echo "[monitor] monitor_log=$MONITOR_LOG"
 echo "[monitor] input_trace_paths=$INPUT_TRACE_PATHS"
 echo "[monitor] trace_columns=$TRACE_COLUMNS"
+echo "[monitor] max_examples_per_trace_column=$MAX_EXAMPLES_PER_TRACE_COLUMN"
+echo "[monitor] match_examples_across_traces=$MATCH_EXAMPLES_ACROSS_TRACES"
 echo "[monitor] monitor_backend=$MONITOR_BACKEND"
 echo "[monitor] monitor_model_name=$MONITOR_MODEL_NAME"
 
@@ -84,6 +88,8 @@ uv run accelerate launch --config_file acc_config.yaml score_monitor.py \
     input_trace_paths="$INPUT_TRACE_PATHS" \
     trace_columns="$TRACE_COLUMNS" \
     only_correct="$ONLY_CORRECT" \
+    max_examples_per_trace_column="$MAX_EXAMPLES_PER_TRACE_COLUMN" \
+    match_examples_across_traces="$MATCH_EXAMPLES_ACROSS_TRACES" \
     allow_prompt_scaffold="$ALLOW_PROMPT_SCAFFOLD" \
     save_prompt_text="$SAVE_PROMPT_TEXT" \
     monitor.backend="$MONITOR_BACKEND" \
